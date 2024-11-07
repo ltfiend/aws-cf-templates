@@ -1,0 +1,109 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: DNS Secondary Authoritative Server on BIND ECS
+Parameters:
+  pStackName:
+    Type: String
+  pEFSBINDConfig:
+    Type: String
+  pSubnets:
+    Type: String
+  pSecurityGroups:
+    Type: String
+  pECSImage:
+    Type: String
+  pExecutionRoleArn:
+    Type: String
+  pRegion:
+    Type: String
+Resources:
+  rECSServiceAuthDNS:
+    Type: "AWS::ECS::Service"
+    Properties:
+      CapacityProviderStrategy:
+        - CapacityProvider: FARGATE
+          Weight: 1
+          Base: 0
+      Cluster: !Ref rECSClusterAuthDNS
+      DeploymentConfiguration:
+        DeploymentCircuitBreaker:
+          Enable: true
+          Rollback: true
+        MaximumPercent: 200
+        MinimumHealthyPercent: 100
+      DeploymentController:
+        Type: ECS
+      DesiredCount: 1
+      EnableECSManagedTags: true
+      Name: !Sub "${pStackName}-ecs-service"
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          Subnets: !Split [",", !Ref pSubnets]
+          SecurityGroups: !Split [",", !Ref pSecurityGroups]
+          AssignPublicIp: ENABLED
+      PlatformVersion: LATEST
+      SchedulingStrategy: REPLICA
+      ServiceName: auth-sec-dns
+      Tags: []
+      TaskDefinition: !Ref rECSTaskDefAuthDNS
+    DeletionPolicy: Delete
+    DependsOn:
+      - rECSClusterAuthDNS
+      - rECSTaskDefAuthDNS
+  rECSClusterAuthDNS:
+    Type: "AWS::ECS::Cluster"
+    Properties:
+      ClusterName: !Sub "${pStackName}-ecs-cluster"
+      ClusterSettings:
+        - Name: containerInsights
+          Value: disabled
+      CapacityProviders:
+        - FARGATE
+        - FARGATE_SPOT
+      DefaultCapacityProviderStrategy: []
+      Tags: []
+    DeletionPolicy: Delete
+    DependsOn:
+      - rECSTaskDefAuthDNS
+  rECSTaskDefAuthDNS:
+    Type: "AWS::ECS::TaskDefinition"
+    Properties:
+      ContainerDefinitions:
+        - Name: !Sub "${pStackName}-container-dns"
+          Image: !Sub "${pECSImage}"
+          Cpu: 0
+          PortMappings:
+            - ContainerPort: 53
+              HostPort: 53
+              Protocol: tcp
+            - ContainerPort: 53
+              HostPort: 53
+              Protocol: udp
+          Essential: true
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-create-group: true
+              awslogs-group: !Sub "/ecs/${pStackName}-logs-dns"
+              awslogs-region: !Sub "${pRegion}"
+              awslogs-stream-prefix: !Sub "${pStackName}"
+          MountPoints:
+            - SourceVolume: !Sub "${pStackName}-efs-configs-dns"
+              ContainerPath: /etc/bind
+              ReadOnly: true
+      Family: !Sub "${pStackName}-task-def-dns"
+      ExecutionRoleArn: !Sub "${pExecutionRoleArn}"
+      NetworkMode: awsvpc
+      Volumes:
+        - Name: !Sub "${pStackName}-efs-configs-dns"
+          EFSVolumeConfiguration:
+            FilesystemId: !Sub "${pEFSBINDConfig}"
+            RootDirectory: /
+      PlacementConstraints: []
+      RequiresCompatibilities:
+        - FARGATE
+      Cpu: "256"
+      Memory: "1024"
+      ephemeralStorage:
+        SizeInGiB: 30
+      Tags: []
+    DeletionPolicy: Delete
