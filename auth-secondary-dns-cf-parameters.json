@@ -1,0 +1,11 @@
+{
+  "Parameters": {
+    "pStackName": "",
+    "pEFSBINDConfig": "",
+    "pSubnets": "",
+    "pSecurityGroups": "",
+    "pExecutionRoleArn": "",
+    "pECSImage": "",
+    "pRegion": ""
+  }
+}
